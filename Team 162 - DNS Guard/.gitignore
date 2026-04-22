@@ -1,0 +1,45 @@
+# venv/
+# __pycache__/
+# *.pyc
+# .env
+# *.db
+# data/pcap_samples/
+# ───────── Python ─────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ───────── Virtual Environment ─────────
+venv/
+env/
+
+# ───────── Environment Variables ─────────
+.env
+
+# ───────── Database ─────────
+*.db
+*.sqlite3
+
+# ───────── Data (large / generated) ─────────
+data/pcap_samples/
+data/logs/
+
+# ───────── Models (ML) ─────────
+models/*.pkl
+
+# ───────── OS Files ─────────
+.DS_Store
+Thumbs.db
+
+# ───────── IDE / Editor ─────────
+.vscode/
+.idea/
+
+# ───────── Flask ─────────
+instance/
+.webassets-cache
+
+# ───────── Temp Files ─────────
+*.tmp
+*.swp

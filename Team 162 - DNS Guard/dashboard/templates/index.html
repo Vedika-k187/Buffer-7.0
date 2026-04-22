@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DNSGuard — Threat Intelligence</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <script src="https://unpkg.com/topojson-client@3/dist/topojson-client.min.js"></script>
+  <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"/>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ═══ SIDEBAR ═════════════════════════════════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">
+        <div class="logo-icon">🛡️</div>
+        <div>
+          <div class="logo-text">DNSGuard</div>
+          <div class="logo-sub">Threat Intel v2</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-status">
+      <div class="status-row">
+        <div class="status-dot"></div>
+        Pipeline active
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+
+      <div class="nav-section">
+        <div class="nav-label">Overview</div>
+        <div class="nav-item active" data-section="overview">
+          <span class="nav-icon">⬛</span> Dashboard
+        </div>
+        <div class="nav-item" data-section="livefeed">
+          <span class="nav-icon">◎</span> Live Feed
+          <span class="nav-badge blue" id="nav-live-count">—</span>
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">Detection</div>
+        <div class="nav-item" data-section="threats">
+          <span class="nav-icon">△</span> Threat Alerts
+          <span class="nav-badge" id="nav-threat-count">—</span>
+        </div>
+        <div class="nav-item" data-section="timeline">
+          <span class="nav-icon">⏱</span> Attack Timeline
+        </div>
+        <div class="nav-item" data-section="activity">
+          <span class="nav-icon">∿</span> Activity Chart
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">Intelligence</div>
+        <div class="nav-item" data-section="graph">
+          <span class="nav-icon">⬡</span> Domain Graph
+        </div>
+        <div class="nav-item" data-section="map">
+          <span class="nav-icon">⊕</span> Geo Threat Map
+        </div>
+      </div>
+
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="system-time" id="clock">--:--:-- UTC</div>
+    </div>
+  </aside>
+
+  <!-- ═══ MAIN ════════════════════════════════════════════ -->
+  <div class="main">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="topbar-breadcrumb">
+        DNSGuard / <span id="topbar-section-name">Dashboard</span>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-pill warn" id="pipeline-status">
+        <div class="dot"></div>
+        <span id="pipeline-label">Idle</span>
+      </div>
+      <div class="topbar-pill">
+        <span id="last-run-label">Last run: never</span>
+      </div>
+      <button class="refresh-btn" onclick="initDashboard()">↺ Refresh</button>
+      <button class="run-btn" id="run-btn" onclick="triggerPipeline()">▶ Run Pipeline</button>
+    </div>
+
+    <!-- ═══ CONTENT ═══════════════════════════════════════ -->
+    <div class="content">
+
+      <!-- ALERT BANNER -->
+      <div class="alert-banner hidden" id="alert-banner">
+        <span>⚠</span>
+        <span id="alert-banner-text">Critical threats detected</span>
+        <button class="alert-close" onclick="this.closest('.alert-banner').classList.add('hidden')">✕</button>
+      </div>
+
+      <!-- ── SECTION: OVERVIEW (dashboard) ──────────────── -->
+      <div class="section-panel active" id="section-overview">
+
+        <div class="section-header">
+          <div class="section-title">System Overview</div>
+          <div class="section-action" id="kpi-updated">—</div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card blue">
+            <div class="kpi-header"><div class="kpi-label">Total Queries</div><div class="kpi-icon">◎</div></div>
+            <div class="kpi-value" id="total-queries">{{ stats.total_queries }}</div>
+            <div class="kpi-sub">DNS records processed</div>
+          </div>
+          <div class="kpi-card red">
+            <div class="kpi-header"><div class="kpi-label">Critical Alerts</div><div class="kpi-icon">△</div></div>
+            <div class="kpi-value" id="critical-alerts">{{ stats.critical_alerts }}</div>
+            <div class="kpi-sub">Immediate action required</div>
+          </div>
+          <div class="kpi-card orange">
+            <div class="kpi-header"><div class="kpi-label">High Alerts</div><div class="kpi-icon">◈</div></div>
+            <div class="kpi-value" id="high-alerts">{{ stats.high_alerts }}</div>
+            <div class="kpi-sub">Elevated risk domains</div>
+          </div>
+          <div class="kpi-card yellow">
+            <div class="kpi-header"><div class="kpi-label">Suspicious Domains</div><div class="kpi-icon">◇</div></div>
+            <div class="kpi-value" id="suspicious-domains">{{ stats.suspicious_domains }}</div>
+            <div class="kpi-sub">Flagged for review</div>
+          </div>
+        </div>
+
+        <!-- Activity chart inline on overview -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="panel-icon">∿</span>Threat Activity — Last 24h</div>
+            <div class="panel-controls"><span class="tag info-tag">Stacked by severity</span></div>
+          </div>
+          <div class="chart-wrap"><canvas id="activity-chart"></canvas></div>
+        </div>
+
+        <!-- Live Feed + Threat Scores -->
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title"><span class="panel-icon">◎</span>Live Query Feed</div>
+              <div class="panel-controls"><span class="tag live">LIVE</span></div>
+            </div>
+            <div class="scrollable">
+              <table class="data-table">
+                <thead><tr><th>Domain</th><th>Source IP</th><th>Type</th><th>Time</th></tr></thead>
+                <tbody id="live-feed-body-overview">
+                  <tr><td colspan="4"><div class="loading"><div class="spinner"></div>Waiting…</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title"><span class="panel-icon">△</span>Top Threats</div>
+              <div class="panel-controls"><span class="tag info-tag" id="threat-count-tag-overview">—</span></div>
+            </div>
+            <div class="scrollable">
+              <table class="data-table">
+                <thead><tr><th>Domain</th><th>Score</th><th>Severity</th></tr></thead>
+                <tbody id="threat-body-overview">
+                  <tr><td colspan="3"><div class="loading"><div class="spinner"></div>Waiting…</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /section-overview -->
+
+      <!-- ── SECTION: LIVE FEED ─────────────────────────── -->
+      <div class="section-panel" id="section-livefeed">
+        <div class="section-header">
+          <div class="section-title">Live Query Feed</div>
+          <span class="tag live">LIVE STREAN</span>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="panel-icon">◎</span>All DNS Records</div>
+            <div class="panel-controls"><span class="nav-badge blue" id="nav-live-count2">—</span></div>
+          </div>
+          <div class="scrollable" style="max-height:600px;">
+            <table class="data-table">
+              <thead><tr><th>Domain</th><th>Source IP</th><th>Type</th><th>Time</th></tr></thead>
+              <tbody id="live-feed-body-full">
+                <tr><td colspan="4"><div class="loading"><div class="spinner"></div>Fetching feed…</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SECTION: THREATS ──────────────────────────── -->
+      <div class="section-panel" id="section-threats">
+        <div class="section-header">
+          <div class="section-title">Threat Alerts</div>
+          <span class="tag info-tag" id="threat-count-tag-full">—</span>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="panel-icon">△</span>All Scored Threats</div>
+          </div>
+          <div class="scrollable" style="max-height:600px;">
+            <table class="data-table">
+              <thead><tr><th>Domain</th><th>Score</th><th>Severity</th></tr></thead>
+              <tbody id="threat-body-full">
+                <tr><td colspan="3"><div class="loading"><div class="spinner"></div>Fetching…</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SECTION: TIMELINE ─────────────────────────── -->
+      <div class="section-panel" id="section-timeline">
+        <div class="section-header">
+          <div class="section-title">Attack Timeline</div>
+          <span class="tag info-tag" id="timeline-count-tag">—</span>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="panel-icon">⏱</span>Chronological Events</div>
+          </div>
+          <div class="timeline-body" id="timeline-container" style="max-height:600px;">
+            <div class="loading"><div class="spinner"></div>Fetching timeline…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SECTION: ACTIVITY CHART ─────────────────────── -->
+      <div class="section-panel" id="section-activity">
+        <div class="section-header">
+          <div class="section-title">Threat Activity</div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="panel-icon">∿</span>24h Stacked Severity Timeline</div>
+          </div>
+          <div style="padding:16px; height:380px; position:relative;">
+            <canvas id="activity-chart-full"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SECTION: GRAPH ─────────────────────────────── -->
+      <div class="section-panel" id="section-graph">
+        <div class="section-header">
+          <div class="section-title">Domain Relationship Graph</div>
+          <span class="tag info-tag" id="graph-stats-tag">—</span>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="panel-icon">⬡</span>Network Topology</div>
+            <div class="panel-controls">
+              <span style="font-size:9.5px;font-family:var(--font-mono);color:var(--text-muted);">node color = severity</span>
+            </div>
+          </div>
+          <div id="graph-container"></div>
+        </div>
+      </div>
+
+      <!-- ── SECTION: MAP ───────────────────────────────── -->
+<div class="section-panel" id="section-map">
+
+  <div class="section-header">
+    <div class="section-title">Geo Threat Map</div>
+    <span class="tag info-tag" id="geo-count-tag">—</span>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <span class="panel-icon">⊕</span>Global IP Threat Distribution
+      </div>
+    </div>
+
+    <div class="map-shell" id="map-shell">
+      <svg id="proton-map"></svg>
+
+      <div class="map-legend">
+        <div class="map-legend-row">
+          <div class="map-legend-dot sus"></div>Suspicious IP
+        </div>
+        <div class="map-legend-row">
+          <div class="map-legend-dot ok"></div>Normal traffic
+        </div>
+      </div>
+
+      <div class="map-counter" id="map-counter">
+        <span class="map-counter-val" id="map-counter-val">—</span>
+        IPs located
+      </div>
+
+      <div class="map-tooltip" id="map-tooltip">
+        <div class="map-tt-sev sus" id="map-tt-sev"></div>
+        <div class="map-tt-ip" id="map-tt-ip"></div>
+        <div class="map-tt-loc" id="map-tt-loc"></div>
+      </div>
+
+    </div> <!-- map-shell -->
+
+  </div> <!-- panel -->
+
+</div> <!-- section-map -->
+       
+
+    </div><!-- /content -->
+
+    <div class="dash-footer">
+      <span>DNSGuard Threat Intelligence Platform — v2.0</span>
+      <span id="footer-stats">—</span>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script>
+const overview = document.getElementById("live-feed-body-overview");
+const full = document.getElementById("live-feed-body-full");
+
+if (overview) overview.innerHTML = "";
+if (full) full.innerHTML = "";
+const socket = io();
+
+socket.on("connect", () => {
+    console.log("✅ Connected to server");
+});
+
+socket.on("new_dns_event", (data) => {
+    console.log("🔥 LIVE DNS:", data);
+
+    const row = `
+        <tr>
+            <td>${data.domain}</td>
+            <td>${data.src_ip}</td>
+            <td>${data.query_type || "-"}</td>
+            <td>${data.timestamp}</td>
+        </tr>
+    `;
+
+    // OVERVIEW TABLE
+    const overview = document.getElementById("live-feed-body-overview");
+    if (overview) {
+        overview.innerHTML = row + overview.innerHTML;
+
+        // limit rows
+        if (overview.rows.length > 50) {
+            overview.deleteRow(50);
+        }
+    }
+
+    // FULL TABLE
+    const full = document.getElementById("live-feed-body-full");
+    if (full) {
+        full.innerHTML = row + full.innerHTML;
+
+        if (full.rows.length > 100) {
+            full.deleteRow(100);
+        }
+    }
+
+    // COUNTERS
+    const c1 = document.getElementById("nav-live-count");
+    const c2 = document.getElementById("nav-live-count2");
+
+    if (c1) c1.innerText = (parseInt(c1.innerText) || 0) + 1;
+    if (c2) c2.innerText = (parseInt(c2.innerText) || 0) + 1;
+});
+</script>
+</body>
+</html>
